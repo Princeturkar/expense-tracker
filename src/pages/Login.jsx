@@ -7,15 +7,19 @@ function Login() {
 
   const navigate = useNavigate();
 
+  // Credentials Step form state
   const [form, setForm] = useState({
     email: "",
     password: ""
   });
 
   const [message, setMessage] = useState("");
+
   const [messageType, setMessageType] = useState("");
+
   const [loading, setLoading] = useState(false);
 
+  // OTP Step-specific states
   const [step, setStep] = useState("credentials");
 
   const [otpDigits, setOtpDigits] = useState(["", "", "", "", "", ""]);
@@ -26,10 +30,21 @@ function Login() {
 
   const [tempUserData, setTempUserData] = useState(null);
 
+  // SMTP configuration
+  const [smtpConfig, setSmtpConfig] = useState({
+    email: localStorage.getItem("smtp_email") || "",
+    password: localStorage.getItem("smtp_password") || ""
+  });
+
+  const [showConfigPanel, setShowConfigPanel] = useState(false);
+
   const [emailStatus, setEmailStatus] = useState("");
 
   const [emailError, setEmailError] = useState("");
 
+  const [showSimulatedBanner, setShowSimulatedBanner] = useState(false);
+
+  // Handle countdown timer
   useEffect(() => {
 
     let interval = null;
@@ -40,13 +55,16 @@ function Login() {
         setTimer((prev) => prev - 1);
       }, 1000);
 
+    } else if (timer === 0) {
+
+      clearInterval(interval);
     }
 
     return () => clearInterval(interval);
 
   }, [step, timer]);
 
-  // Send OTP
+  // Generate OTP and send
   const generateAndSendOtp = async (targetEmail) => {
 
     const code = Math.floor(
@@ -59,6 +77,8 @@ function Login() {
 
     setTimer(30);
 
+    setShowSimulatedBanner(false);
+
     setEmailStatus("sending");
 
     setEmailError("");
@@ -67,9 +87,18 @@ function Login() {
 
       const payload = {
         email: targetEmail,
-        otpCode: code
+        otpCode: code,
+        smtpConfig:
+          smtpConfig.email &&
+          smtpConfig.password
+            ? {
+                user: smtpConfig.email,
+                pass: smtpConfig.password
+              }
+            : null
       };
 
+      // UPDATED API
       const res = await OTP_API.post(
         "/send-otp",
         payload
@@ -84,19 +113,27 @@ function Login() {
         setEmailStatus("failed");
 
         setEmailError(
-          res.data.message || "Failed to send OTP"
+          res.data.message ||
+          "Failed to dispatch email."
         );
+
+        setShowSimulatedBanner(true);
       }
 
     } catch (err) {
 
-      console.error(err);
+      console.error(
+        "OTP Backend Error:",
+        err
+      );
 
       setEmailStatus("failed");
 
       setEmailError(
-        "OTP backend server error"
+        "OTP backend server is offline."
       );
+
+      setShowSimulatedBanner(true);
     }
   };
 
@@ -108,7 +145,7 @@ function Login() {
     });
   };
 
-  // Login
+  // Step 1: Login
   const handleLogin = async (e) => {
 
     e.preventDefault();
@@ -147,7 +184,8 @@ function Login() {
         };
 
         setTempUserData({
-          user: loggedInUser
+          user: loggedInUser,
+          originalResponse: res.data
         });
 
         setStep("otp");
@@ -156,7 +194,9 @@ function Login() {
 
       } else {
 
-        setMessage("Invalid Email or Password");
+        setMessage(
+          "Invalid Email or Password"
+        );
 
         setMessageType("error");
       }
@@ -164,7 +204,7 @@ function Login() {
     } catch (error) {
 
       setMessage(
-        "Invalid Email or Password / Server Error"
+        "Invalid Email or Password / Server Connection Issue"
       );
 
       setMessageType("error");
@@ -182,30 +222,59 @@ function Login() {
 
     const enteredOtp = otpDigits.join("");
 
+    setLoading(true);
+
+    setMessage("");
+
     if (enteredOtp === generatedOtp) {
+
+      const userToSave =
+        tempUserData?.user || {
+          name:
+            form.email
+              .split("@")[0]
+              .charAt(0)
+              .toUpperCase() +
+            form.email
+              .split("@")[0]
+              .slice(1),
+
+          email: form.email
+        };
 
       localStorage.setItem(
         "user",
-        JSON.stringify(tempUserData.user)
+        JSON.stringify(userToSave)
       );
 
-      setMessage("Login Successful!");
+      setMessage(
+        "Login Successful! Redirecting..."
+      );
 
       setMessageType("success");
 
-      setTimeout(() => {
-        navigate("/dashboard");
-      }, 1000);
+      setTimeout(
+        () => navigate("/dashboard"),
+        1200
+      );
 
     } else {
 
-      setMessage("Invalid OTP");
+      setMessage(
+        "Invalid OTP Verification Code"
+      );
 
       setMessageType("error");
+
+      setLoading(false);
     }
   };
 
-  const handleDigitChange = (value, index) => {
+  // OTP digit handling
+  const handleDigitChange = (
+    value,
+    index
+  ) => {
 
     if (!/^\d*$/.test(value)) return;
 
@@ -217,16 +286,69 @@ function Login() {
 
     if (value && index < 5) {
 
-      const nextInput = document.getElementById(
-        `otp-input-${index + 1}`
-      );
+      const nextInput =
+        document.getElementById(
+          `otp-input-${index + 1}`
+        );
 
       if (nextInput) nextInput.focus();
     }
   };
 
-  return (
+  const handleKeyDown = (
+    e,
+    index
+  ) => {
 
+    if (e.key === "Backspace") {
+
+      if (!otpDigits[index] && index > 0) {
+
+        const prevInput =
+          document.getElementById(
+            `otp-input-${index - 1}`
+          );
+
+        if (prevInput) {
+
+          prevInput.focus();
+
+          const newDigits = [...otpDigits];
+
+          newDigits[index - 1] = "";
+
+          setOtpDigits(newDigits);
+        }
+      }
+    }
+  };
+
+  const handlePaste = (e) => {
+
+    e.preventDefault();
+
+    const pasteData =
+      e.clipboardData
+        .getData("text")
+        .trim();
+
+    if (/^\d{6}$/.test(pasteData)) {
+
+      const newDigits =
+        pasteData.split("");
+
+      setOtpDigits(newDigits);
+
+      const lastInput =
+        document.getElementById(
+          "otp-input-5"
+        );
+
+      if (lastInput) lastInput.focus();
+    }
+  };
+
+  return (
     <div className="auth-container">
 
       <div className="auth-card">
@@ -234,33 +356,55 @@ function Login() {
         <h2>
           {step === "credentials"
             ? "Welcome Back"
-            : "OTP Verification"}
+            : "Security Verification"}
         </h2>
+
+        <p className="subtitle">
+          {step === "credentials"
+            ? "Enter your credentials"
+            : `OTP sent to ${form.email}`}
+        </p>
 
         {/* LOGIN FORM */}
         {step === "credentials" && (
 
           <form onSubmit={handleLogin}>
 
-            <input
-              type="email"
-              name="email"
-              placeholder="Email"
-              value={form.email}
-              onChange={handleChange}
-              required
-            />
+            <div className="auth-input-group">
 
-            <input
-              type="password"
-              name="password"
-              placeholder="Password"
-              value={form.password}
-              onChange={handleChange}
-              required
-            />
+              <input
+                type="email"
+                name="email"
+                className="auth-input"
+                placeholder="Email Address"
+                value={form.email}
+                onChange={handleChange}
+                required
+                disabled={loading}
+              />
 
-            <button type="submit">
+            </div>
+
+            <div className="auth-input-group">
+
+              <input
+                type="password"
+                name="password"
+                className="auth-input"
+                placeholder="Password"
+                value={form.password}
+                onChange={handleChange}
+                required
+                disabled={loading}
+              />
+
+            </div>
+
+            <button
+              className="auth-btn"
+              type="submit"
+              disabled={loading}
+            >
 
               {loading
                 ? "Signing In..."
@@ -276,97 +420,92 @@ function Login() {
 
           <form onSubmit={handleVerifyOtp}>
 
-            <p>
-              OTP sent to:
-              <strong> {form.email}</strong>
-            </p>
-
-            {emailStatus === "sending" && (
-              <p>Sending OTP...</p>
-            )}
-
-            {emailStatus === "sent" && (
-              <p style={{ color: "green" }}>
-                OTP sent successfully
-              </p>
-            )}
-
-            {emailStatus === "failed" && (
-              <p style={{ color: "red" }}>
-                {emailError}
-              </p>
-            )}
-
             <div
-              style={{
-                display: "flex",
-                gap: "10px",
-                justifyContent: "center"
-              }}
+              className="otp-digits-wrapper"
+              onPaste={handlePaste}
             >
 
-              {otpDigits.map((digit, idx) => (
+              {otpDigits.map(
+                (digit, idx) => (
 
-                <input
-                  key={idx}
-                  id={`otp-input-${idx}`}
-                  type="text"
-                  maxLength="1"
-                  value={digit}
-                  onChange={(e) =>
-                    handleDigitChange(
-                      e.target.value,
-                      idx
-                    )
-                  }
-                  required
-                  style={{
-                    width: "45px",
-                    height: "45px",
-                    textAlign: "center",
-                    fontSize: "20px"
-                  }}
-                />
-              ))}
+                  <input
+                    key={idx}
+                    id={`otp-input-${idx}`}
+                    type="text"
+                    maxLength="1"
+                    className="otp-digit-input"
+                    value={digit}
+                    onChange={(e) =>
+                      handleDigitChange(
+                        e.target.value,
+                        idx
+                      )
+                    }
+                    onKeyDown={(e) =>
+                      handleKeyDown(
+                        e,
+                        idx
+                      )
+                    }
+                    required
+                  />
+                )
+              )}
 
             </div>
 
-            <button type="submit">
-              Verify OTP
+            <button
+              className="auth-btn"
+              type="submit"
+            >
+              Verify & Login
             </button>
 
-            {timer > 0 ? (
+            <div className="otp-cooldown">
 
-              <p>
-                Resend OTP in {timer}s
-              </p>
+              {timer > 0 ? (
 
-            ) : (
+                <span>
+                  Resend code in{" "}
+                  <strong>
+                    {timer}s
+                  </strong>
+                </span>
 
-              <button
-                type="button"
-                onClick={() =>
-                  generateAndSendOtp(form.email)
-                }
-              >
-                Resend OTP
-              </button>
-            )}
+              ) : (
+
+                <button
+                  type="button"
+                  className="otp-resend-btn"
+                  onClick={() =>
+                    generateAndSendOtp(
+                      form.email
+                    )
+                  }
+                >
+                  Resend Verification Code
+                </button>
+              )}
+
+            </div>
 
           </form>
         )}
 
         {message && (
-          <p className={messageType}>
+          <div
+            className={`auth-message ${messageType}`}
+          >
             {message}
-          </p>
+          </div>
         )}
 
-        <p>
+        <p className="auth-link">
 
-          Don't have an account?
+          Don't have an account?{" "}
+
           <Link to="/register">
-            Register
+            Sign up
           </Link>
 
         </p>
