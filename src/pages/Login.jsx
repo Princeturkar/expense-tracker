@@ -148,72 +148,63 @@ function Login() {
   // Step 1: Login
   const handleLogin = async (e) => {
 
-    e.preventDefault();
+  e.preventDefault();
 
-    setLoading(true);
+  setLoading(true);
 
-    setMessage("");
+  setMessage("");
 
-    try {
+  try {
 
-      const res = await API.post(
-        "/auth/login",
-        form
-      );
+    // Login API call
+    const res = await API.post(
+      "/auth/login",
+      form
+    );
 
-      if (
-        res.data &&
-        (
-          res.data.includes("Login Success") ||
-          res.data.success ||
-          typeof res.data === "object"
-        )
-      ) {
+    console.log("Login Response:", res.data);
 
-        const loggedInUser = {
-          name:
-            form.email
-              .split("@")[0]
-              .charAt(0)
-              .toUpperCase() +
-            form.email
-              .split("@")[0]
-              .slice(1),
+    // Create logged in user
+    const loggedInUser = {
+      name:
+        form.email
+          .split("@")[0]
+          .charAt(0)
+          .toUpperCase() +
+        form.email
+          .split("@")[0]
+          .slice(1),
 
-          email: form.email
-        };
+      email: form.email
+    };
 
-        setTempUserData({
-          user: loggedInUser,
-          originalResponse: res.data
-        });
+    // Store temporary user data
+    setTempUserData({
+      user: loggedInUser,
+      originalResponse: res.data
+    });
 
-        setStep("otp");
+    // Move to OTP screen
+    setStep("otp");
 
-        await generateAndSendOtp(form.email);
+    // Send OTP
+    await generateAndSendOtp(form.email);
 
-      } else {
+  } catch (error) {
 
-        setMessage(
-          "Invalid Email or Password"
-        );
+    console.error(error);
 
-        setMessageType("error");
-      }
+    setMessage(
+      "Invalid Email or Password / Server Connection Issue"
+    );
 
-    } catch (error) {
+    setMessageType("error");
 
-      setMessage(
-        "Invalid Email or Password / Server Connection Issue"
-      );
+  } finally {
 
-      setMessageType("error");
-
-    } finally {
-
-      setLoading(false);
-    }
-  };
+    setLoading(false);
+  }
+};
 
   // Verify OTP
   const handleVerifyOtp = (e) => {
