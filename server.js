@@ -12,7 +12,12 @@ const PORT = process.env.PORT || 5001;
 
 // Middlewares
 app.use(cors({
-  origin: ["http://localhost:5173", "http://localhost:3000", "http://localhost:5174"],
+  origin: [
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "http://localhost:5174",
+    "https://expense-tracker-sepia-phi-13.vercel.app"
+  ],
   credentials: true
 }));
 app.use(express.json());
