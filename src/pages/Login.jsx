@@ -188,7 +188,7 @@ function Login() {
     setStep("otp");
 
     // Send OTP
-    await generateAndSendOtp(form.email);
+    generateAndSendOtp(form.email);
 
   } catch (error) {
 
